@@ -3,6 +3,11 @@
 .RData
 .Ruserdata
 
-# Data directories
-raw-data/
-clean-data/
+# Data directories content (but keep the directories)
+raw-data/*
+!raw-data/.gitkeep
+clean-data/*
+!clean-data/.gitkeep
+
+# DuckDB databases
+*.duckdb
