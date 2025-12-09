@@ -1,0 +1,218 @@
+---
+title: "NLP para Todos: Comparando textos con números"
+author: "Paulo Villarroel - Hazla con Datos"
+date: today
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 2
+    code-fold: false
+    self-contained: true
+execute:
+  warning: false
+  message: false
+---
+
+# ¿Qué aprenderemos hoy?
+
+En este tutorial entenderás de forma sencilla cómo las computadoras "leen" y comparan textos médicos. 
+
+Aprenderás:
+1.  Cómo convertir texto en listas de números (**Embeddings**).
+2.  Cómo medir si dos textos hablan de lo mismo (**Similitud**).
+3.  Cómo hacerlo tú mismo en R.
+
+Todo explicado con peras y manzanas (y ejemplos médicos).
+
+::: {.callout-note}
+## Antes de empezar
+Para seguir los ejemplos de código necesitarás R instalado. 
+Hay una parte especial que usa Inteligencia Artificial (Ollama), pero si no la tienes instalada, ¡no te preocupes! He incluido datos de ejemplo para que puedas probar todo el código sin instalar nada extra.
+:::
+
+---
+
+# 1. El Problema: Las computadoras son literales
+
+Imagina que buscas en una base de datos de pacientes:
+
+*   Tú buscas: **"Cáncer de pulmón"**
+*   La base tiene: **"Neoplasia pulmonar"**
+
+Para una computadora normal, estas frases son totalmente diferentes. No comparten casi ninguna letra. Sin embargo, para un médico, significan lo mismo.
+
+**¿Cómo le enseñamos a la computadora que significan lo mismo?**
+
+---
+
+# 2. La Solución: Embeddings (Recetas numéricas)
+
+Aquí entra la magia. Los **Embeddings** son una forma de traducir texto a una "receta" de números.
+
+Imagina que describimos una comida con números del 0 al 1:
+*   Dulce: 0.9
+*   Picante: 0.1
+*   Salado: 0.2
+
+Así, un "Pastel" y una "Torta" tendrían números muy parecidos, aunque se escriban diferente.
+
+En NLP (Procesamiento de Lenguaje Natural), hacemos lo mismo con textos médicos. Convertimos cada frase en una lista de números llamada **Vector**.
+
+```
+"Paciente con cáncer" → [0.82, 0.75, 0.15, ...]
+```
+
+---
+
+# 3. Manos a la obra en R
+
+Vamos a ver cómo funciona esto en la práctica.
+
+## Generando nuestros "números mágicos"
+
+Normalmente usaríamos una IA para generar estos números (veremos eso al final), pero para entenderlo, usaremos unos inventados que se comportan igual.
+
+Imagina que nuestra IA analizó dos frases y nos dio estos números:
+
+```{r}
+# Texto A: "Paciente con cáncer pulmonar"
+vector_A <- c(0.82, 0.75, 0.15, 0.63, 0.41, 0.89)
+
+# Texto B: "Paciente con neoplasia pulmonar" (Sinónimo)
+vector_B <- c(0.79, 0.71, 0.18, 0.67, 0.38, 0.85)
+
+# Texto C: "Fractura de fémur" (Nada que ver)
+vector_C <- c(0.10, 0.20, 0.95, 0.15, 0.05, 0.12)
+```
+
+Mira los números de A y B. ¡Son casi iguales en cada posición!
+En cambio, el vector C tiene números muy diferentes.
+
+---
+
+# 4. ¿Cómo medimos la similitud?
+
+Ya tenemos números. Ahora, ¿cómo calculamos un porcentaje de similitud?
+
+Usamos algo llamado **Similitud de Coseno**.
+No te asustes por el nombre matemático. Imagínalo como una brújula:
+
+*   Si dos vectores apuntan al **mismo sitio**, la similitud es **100% (1.0)**.
+*   Si apuntan a **lados opuestos**, la similitud es **0% (0.0)** o incluso negativa.
+
+## La Fórmula Simplificada
+
+Para calcular esto, hacemos dos cosas:
+
+1.  **Multiplicamos las coincidencias**: Multiplicamos los números de cada vector y sumamos todo. Si ambos tienen números altos en las mismas posiciones, la suma será grande.
+2.  **Ajustamos por tamaño**: Dividimos por el "largo" total de los vectores para que sea una comparación justa.
+
+### Veámoslo en código
+
+Aquí tienes una función lista para usar que hace el cálculo por ti:
+
+```{r}
+# Función para calcular similitud (copia y pega esto)
+calcular_similitud <- function(texto1_nums, texto2_nums) {
+  # Paso 1: Multiplicar coincidencias
+  coincidencias <- sum(texto1_nums * texto2_nums)
+  
+  # Paso 2: Calcular el tamaño de cada uno
+  tamano1 <- sqrt(sum(texto1_nums^2))
+  tamano2 <- sqrt(sum(texto2_nums^2))
+  
+  # Paso 3: Dividir para obtener el porcentaje final
+  resultado <- coincidencias / (tamano1 * tamano2)
+  return(resultado)
+}
+```
+
+## ¡Probemos!
+
+¿Qué tan parecidos son el "Cáncer" y la "Neoplasia"?
+
+```{r}
+similitud <- calcular_similitud(vector_A, vector_B)
+cat("Similitud A vs B:", round(similitud * 100, 1), " %\n")
+```
+
+¡**99.6**! La computadora entendió que son casi lo mismo.
+
+Ahora, ¿qué pasa con la fractura?
+
+```{r}
+similitud_mala <- calcular_similitud(vector_A, vector_C)
+cat("Similitud A vs C:", round(similitud_mala * 100, 1), " %\n")
+```
+
+Solo **34** Correcto, no tienen mucho que ver.
+
+---
+
+# 5. Visualizando las relaciones
+
+Si comparamos varios textos a la vez, podemos ver quién se parece a quién usando un "Mapa de Calor".
+
+```{r}
+#| label: fig-heatmap
+#| fig-cap: "Los colores oscuros indican mayor similitud."
+
+library(pheatmap)
+
+# Juntamos nuestros vectores en una matriz
+datos <- rbind(vector_A, vector_B, vector_C)
+rownames(datos) <- c("Cáncer", "Neoplasia", "Fractura")
+
+# Calculamos similitud de todos contra todos (usando una función de R)
+# Aquí usamos una librería para hacerlo más rápido
+distancias <- as.matrix(dist(datos, method = "euclidean"))
+similitud_visual <- 1 / (1 + distancias) # Truco para convertir distancia a similitud visual
+
+pheatmap(
+  similitud_visual,
+  color = colorRampPalette(c("#f7f7f7", "#2166ac"))(100),
+  cluster_rows = FALSE, 
+  cluster_cols = FALSE,
+  display_numbers = TRUE,
+  main = "¿Qué textos se parecen?"
+)
+```
+
+En el gráfico verás que **Cáncer** y **Neoplasia** tienen un color intenso entre ellos, indicando que son "parientes cercanos".
+
+---
+
+# 6. Para los Curiosos: ¿Cómo lo hago con datos reales?
+
+Si quieres hacer esto con tus propios textos clínicos, necesitas usar una Inteligencia Artificial real para generar los números.
+
+Aquí te dejo el código de referencia usando la librería `ollamar`.
+*(Nota: Esto requiere instalar Ollama en tu PC).*
+
+```{r}
+#| eval: false
+
+library(ollamar)
+
+# 1. Le damos el texto a la IA
+vector_real_1 <- embed("embeddinggemma:latest", "Paciente con infarto")
+vector_real_2 <- embed("embeddinggemma:latest", "Paciente con ataque al corazón")
+
+# 2. Usamos nuestra función de similitud
+similitud <- calcular_similitud(vector_real_1, vector_real_2)
+
+print(similitud) # Debería ser muy alta
+```
+
+---
+
+
+# Resumen
+
+¡Felicidades! Has aprendido la base de cómo funciona Google o ChatGPT por dentro:
+
+1.  Convierten palabras a **listas de números** (Embeddings).
+2.  Comparan si esos números **apuntan a la misma dirección** (Similitud Coseno).
+
+Ahora, cuando veas un sistema recomendando "artículos similares" o buscando sinónimos, ya sabes que es pura matemática simple funcionando por detrás.

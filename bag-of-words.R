@@ -34,7 +34,7 @@ frecuencias <- colSums(matriz)
 sort(frecuencias, decreasing = TRUE)
 
 # Calcular similitud coseno entre documentos
-install.packages("lsa")
+# install.packages("lsa")
 
 similitud <- lsa::cosine(t(matriz))
 print(similitud)

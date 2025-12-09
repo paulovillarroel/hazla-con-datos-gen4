@@ -5,7 +5,9 @@ url <- "https://datos.gob.cl/dataset/606ef5bb-11d1-475b-b69f-b980da5757f4/resour
 
 download.file(url, "raw-data/at_urg_respiratorio_semanal.parquet", mode = "wb")
 
-data <- arrow::read_parquet("raw-data/at_urg_respiratorio_semanal.parquet")
+data <- arrow::read_parquet(
+  "raw-data/at_urg_respiratorio_semanal.parquet"
+)
 
 
 # Parte 1 ----
@@ -23,6 +25,14 @@ flu_hospitals <- data |>
 flu_hospitals <- flu_hospitals |>
   filter(!(anio == 2025 & semana_estadistica == last(semana_estadistica)))
 
+flu_hosp2 <- flu_hospitals |>
+  mutate(anio = factor(anio))
+
+ggplot(
+  flu_hospitals,
+  aes(x = semana_estadistica, y = casos, color = factor(anio))
+) +
+  geom_line()
 
 ggplot(
   data = flu_hospitals,

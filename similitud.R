@@ -34,3 +34,12 @@ print(dist_coseno)
 # Convertir distancia a similitud
 sim_coseno_pct <- (1 - dist_coseno) * 100
 print(sim_coseno_pct)
+
+# Ejemplo
+texto1 <- "El paciente presenta cáncer de pulmón"
+texto2 <- "Colelitiasis complicada con colecistitis aguda"
+texto3 <- "Diagnóstico de cáncer en pulmón derecho"
+
+# Calcular distancia de Jaccard entre dos textos
+dist_jaccard_ej <- stringdist(texto1, texto2, method = "lv")
+dist_jaccard_ej
