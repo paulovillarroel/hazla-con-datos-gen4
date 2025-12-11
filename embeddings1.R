@@ -1,6 +1,8 @@
 library(ollamar)
 
 # Embeddings
+embed("embeddinggemma:latest", "Paciente dolor abdominal")
+
 # Ejemplo 1
 embed1 <- embed("embeddinggemma:latest", "Paciente con cáncer pulmonar")
 embed2 <- embed(
@@ -26,7 +28,7 @@ cosine_similarity(embed1, embed2)
 
 # Ejemplo 2
 embed3 <- embed("embeddinggemma:latest", "Paciente con insuficiencia cardíaca congestiva")
-embed4 <- embed("embeddinggemma:latest", "Paciente con falla cardíaca descompensada")
+embed4 <- embed("embeddinggemma:latest", "El auto se quemó")
 
 # Producto punto
 sum(embed3 * embed4)
