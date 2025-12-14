@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "WebFetch(domain:cran.r-project.org)",
+      "WebFetch(domain:htmlpreview.github.io)",
+      "WebSearch",
+      "Bash(Rscript:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cat:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:ragnar.tidyverse.org)",
+      "WebFetch(domain:www.infoworld.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -30,8 +30,8 @@ frases_salud <- tibble(
     "Cefalea tensional crónica",
     "Migraña con aura visual",
     "Paciente reporta dolor de cabeza intenso",
-    "Pérdida de consciencia y mareos",
-    #"Prostatectomía radical",
+    #"Pérdida de consciencia y mareos",
+    "Prostatectomía radical",
     "Síncope de origen neurológico"
   ),
   categoria = rep(c("Oncología", "Digestivo", "Neurología"), each = 5)
