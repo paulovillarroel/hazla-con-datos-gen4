@@ -9,6 +9,7 @@ library(ellmer)
 library(tidyverse)
 library(jsonlite)
 library(ragnar)
+library(digest)
 
 # ----------------------------------------------------------------------------
 # 1. SETUP
@@ -88,6 +89,23 @@ cat("  - Nivel 2 (específicos):", sum(cie10_chunks$level == 2), "\n")
 cat("  - Nivel 1 (generales):", sum(cie10_chunks$level == 1), "\n\n")
 
 # ----------------------------------------------------------------------------
+# CACHE: Crear cache key basado en inputs
+# ----------------------------------------------------------------------------
+
+# Crear cache key basado en textos + modelo + configuración
+cache_key <- digest::digest(
+  list(
+    texts = text$texto,
+    llm_model = llm_model,
+    embedder_model = "embeddinggemma:latest",
+    top_k = top_k_default
+  ),
+  algo = "sha256"
+)
+
+cache_file <- paste0("raw-data/cache_", cache_key, ".rds")
+
+# ----------------------------------------------------------------------------
 # 3. CREAR RAG STORE CON EMBEDDINGS
 # ----------------------------------------------------------------------------
 
@@ -118,7 +136,7 @@ if (file.exists(store_path)) {
         x,
         base_url = "http://localhost:11434",
         model = "embeddinggemma:latest",
-        batch_size = 10L
+        batch_size = 50L
       )
     }
   )
@@ -242,17 +260,34 @@ cat(
 cat("  3. Pasar códigos al LLM para seleccionar el más apropiado\n")
 cat("\nProcesando", nrow(text), "textos médicos...\n\n")
 
-# Aplicar clasificación con RAG a todos los textos
-texts_classified <- text |>
-  rowwise() |>
-  mutate(
-    classification = list(classify_with_rag(texto, chat, top_k = top_k_default))
-  ) |>
-  ungroup() |>
-  unnest(classification, names_sep = "_") |>
-  select(-classification_texto) # Remover columna duplicada de texto
+# Verificar cache antes de clasificar
+if (file.exists(cache_file)) {
+  cat("✓ Cache encontrado! Cargando resultados previos...\n")
+  cat("  Archivo:", cache_file, "\n\n")
+  texts_classified <- readRDS(cache_file)
+  cat("Saltando clasificación (usando cache)\n\n")
 
-cat("Clasificación completada!\n\n")
+} else {
+  cat("Sin cache. Ejecutando clasificación...\n\n")
+
+  # Aplicar clasificación con RAG a todos los textos
+  texts_classified <- text |>
+    mutate(
+      classification = purrr::map(
+        texto,
+        ~classify_with_rag(.x, chat, top_k = top_k_default)
+      )
+    ) |>
+    unnest(classification, names_sep = "_") |>
+    select(-classification_texto) # Remover columna duplicada de texto
+
+  cat("Clasificación completada!\n\n")
+
+  # Guardar cache
+  cat("Guardando resultados en cache...\n")
+  saveRDS(texts_classified, cache_file)
+  cat("✓ Cache guardado:", cache_file, "\n\n")
+}
 
 # ----------------------------------------------------------------------------
 # 6. POST-PROCESAMIENTO Y VALIDACIÓN
@@ -377,6 +412,23 @@ texts_classified$classification_retrieved_codes[[1]] |>
   print(n = 30)
 
 try(DBI::dbDisconnect(store@con), silent = TRUE)
+
+# ----------------------------------------------------------------------------
+# 9. LIMPIEZA DE CACHE ANTIGUO
+# ----------------------------------------------------------------------------
+
+# Limpiar archivos de cache antiguos (mantener solo los últimos 5)
+cache_files <- list.files(
+  "raw-data",
+  pattern = "^cache_.*\\.rds$",
+  full.names = TRUE
+)
+
+if (length(cache_files) > 5) {
+  old_caches <- cache_files[order(file.mtime(cache_files))][1:(length(cache_files) - 5)]
+  file.remove(old_caches)
+  cat("\n✓ Limpiados", length(old_caches), "archivos de cache antiguos\n")
+}
 
 # Guardar resultados (opcional)
 # write_csv(texts_classified |> select(-classification_retrieved_codes), "resultados-cie10-rag.csv")
