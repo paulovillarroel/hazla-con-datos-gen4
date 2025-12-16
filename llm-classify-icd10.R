@@ -1,7 +1,8 @@
 # ============================================================================
 # Clasificación CIE-10 con RAG (Retrieval-Augmented Generation)
 # ============================================================================
-# Versión simplificada para enseñanza
+
+# Versión simplificada para enseñanza (sin testing, debugging avanzado ni fallbacks)
 # Concepto: El LLM usa tool calling para buscar códigos relevantes automáticamente
 
 library(mall)
@@ -22,8 +23,13 @@ llm_model <- "kimi-k2:1t-cloud"
 # Configurar chat con Ollama
 chat <- chat_ollama(
   model = llm_model,
-  system_prompt = "Eres un experto en clasificación médica CIE-10. Responde con JSON."
+  system_prompt = paste(
+    "Eres un experto en clasificación médica CIE-10.",
+    "USA SIEMPRE la herramienta 'retrieve' para buscar códigos en el catálogo.",
+    "Responde SOLO con JSON."
+  )
 )
+
 llm_use(chat)
 
 # Textos médicos de ejemplo
@@ -53,17 +59,16 @@ text <- tibble(
     "tumor maligno mama parte no especificada hernia inguinal crural umbilical linea blanca similares recidivada nosimple estrangulada sreseccion intestcu cirugia general adulto",
     "evaluación previa a inicio de quimioetarapia.",
     "obs papiloma labio inferior",
-    "lesion cara dorsal lengua, posible lesion de tipo vascular"
+    "lesion cara dorsal lengua, posible lesion de tipo vascular",
+    "coledtoliatsis"
   )
 )
 
 # ----------------------------------------------------------------------------
 # 2. CARGAR CATÁLOGO CIE-10
 # ----------------------------------------------------------------------------
-
 cat("Cargando catálogo CIE-10...\n")
-
-cie10_raw <- fromJSON("raw-data/cie10-codes.json")
+cie10_raw <- fromJSON("raw-data/cie10-codes-complete.json")
 
 # Preparar códigos para RAG (todos los niveles para mejor matching)
 cie10_chunks <- cie10_raw |>
@@ -75,6 +80,7 @@ cie10_chunks <- cie10_raw |>
 
 cat("Total de códigos CIE-10:", nrow(cie10_chunks), "\n")
 cat("  Distribución por nivel:\n")
+
 cie10_chunks |>
   count(level) |>
   arrange(level) |>
@@ -89,6 +95,7 @@ cat("\n")
 
 # NOTA: Si es la primera vez, instalar extensiones de DuckDB
 # Descomentar y ejecutar una sola vez:
+
 # library(duckdb)
 # con <- dbConnect(duckdb())
 # dbExecute(con, "INSTALL fts")
@@ -104,14 +111,12 @@ store_path <- "raw-data/cie10_rag_store.duckdb"
 if (file.exists(store_path)) {
   cat("Conectando a store existente...\n")
   store <- ragnar_store_connect(store_path, read_only = FALSE)
-
   # Cargar extensiones necesarias
   DBI::dbExecute(store@con, "LOAD fts")
   DBI::dbExecute(store@con, "LOAD vss")
 } else {
   cat("Creando RAG store con embeddings...\n")
   cat("(Esto toma varios minutos la primera vez)\n\n")
-
   # Crear store con embeddings locales de Ollama
   store <- ragnar_store_create(
     store_path,
@@ -129,15 +134,12 @@ if (file.exists(store_path)) {
   # Cargar extensiones
   DBI::dbExecute(store@con, "LOAD fts")
   DBI::dbExecute(store@con, "LOAD vss")
-
   # Insertar códigos CIE-10
   cat("Insertando", nrow(cie10_chunks), "códigos...\n")
   ragnar_store_insert(store, cie10_chunks)
-
   # Construir índice de búsqueda
   cat("Construyendo índice híbrido (BM25 + VSS)...\n")
   ragnar_store_build_index(store)
-
   cat("✓ Store creado!\n\n")
 }
 
@@ -154,11 +156,14 @@ cat("✓ LLM puede ahora usar la herramienta 'retrieve'\n\n")
 # ----------------------------------------------------------------------------
 
 classify_with_rag <- function(medical_text, chat) {
-  # Prompt simple: el LLM usará la tool automáticamente
+  # Prompt con solicitud de alternativas
   prompt <- paste0(
     "Clasifica este texto médico con el código CIE-10 más apropiado.\n\n",
-    "Usa la herramienta 'retrieve' para buscar códigos relevantes.\n",
-    "Responde SOLO con JSON: {\"code\":\"X99.9\"}\n\n",
+    "IMPORTANTE: Usa OBLIGATORIAMENTE la herramienta 'retrieve' para buscar códigos en el catálogo.\n",
+    "SOLO puedes usar códigos que existan en los resultados de 'retrieve'.\n",
+    "NO inventes códigos - DEBES seleccionar de los resultados de búsqueda.\n\n",
+    "Responde SOLO con JSON incluyendo el código principal y hasta 2 alternativas:\n",
+    "{\"code\":\"X99.9\", \"alternatives\":[\"X99.8\"]}\n\n",
     "Texto: ",
     medical_text
   )
@@ -166,18 +171,24 @@ classify_with_rag <- function(medical_text, chat) {
   # El LLM decide cuándo y cómo usar la tool de retrieval
   response <- chat$chat(prompt)
 
-  # Extraer código de la respuesta
+  # Extraer código y alternativas de la respuesta
   parsed <- tryCatch(
     jsonlite::fromJSON(str_trim(response)),
     error = function(e) NULL
   )
-
   if (!is.null(parsed) && !is.null(parsed$code)) {
     code <- str_trim(parsed$code)
+    # Extraer alternativas si existen
+    if (!is.null(parsed$alternatives) && length(parsed$alternatives) > 0) {
+      alternatives <- str_trim(parsed$alternatives)
+    } else {
+      alternatives <- character(0)
+    }
   } else {
     # Fallback: regex para extraer código CIE-10
     match <- str_match(response, "([A-Z][0-9]{2}(?:\\.[0-9A-Z]{1,4})?)")
     code <- match[, 2]
+    alternatives <- character(0)
   }
 
   # Obtener descripción del catálogo
@@ -186,7 +197,6 @@ classify_with_rag <- function(medical_text, chat) {
     code_clean <- str_trim(code)
     # Remover punto decimal para hacer match con el catálogo (D04.0 → D040)
     code_normalized <- str_replace_all(code_clean, "\\.", "")
-
     if (DEBUG) {
       cat(
         "\n[DEBUG] Código original:",
@@ -202,11 +212,9 @@ classify_with_rag <- function(medical_text, chat) {
       filter(code == code_normalized) |>
       pull(description) |>
       first()
-
     if (DEBUG && (is.null(desc_match) || length(desc_match) == 0)) {
       cat("[DEBUG] No encontrado con matching exacto, intentando flexible...\n")
     }
-
     # Si no encuentra, intentar matching más flexible
     if (is.null(desc_match) || length(desc_match) == 0) {
       # Buscar si el código está contenido en el texto del catálogo
@@ -245,7 +253,6 @@ classify_with_rag <- function(medical_text, chat) {
         )
       }
     }
-
     description <- if (is.null(desc_match) || length(desc_match) == 0) {
       NA_character_
     } else {
@@ -255,10 +262,38 @@ classify_with_rag <- function(medical_text, chat) {
     description <- NA_character_
   }
 
+  # Procesar alternativas
+  if (length(alternatives) > 0) {
+    # Normalizar alternativas (remover puntos decimales)
+    alternatives_normalized <- str_replace_all(alternatives, "\\.", "")
+    # Obtener descripciones de alternativas
+    alternatives_desc <- map_chr(alternatives_normalized, function(alt_code) {
+      desc <- cie10_chunks |>
+        filter(code == alt_code) |>
+        pull(description) |>
+        first()
+      if (is.null(desc) || length(desc) == 0 || is.na(desc)) {
+        NA_character_
+      } else {
+        desc
+      }
+    })
+
+    # Combinar códigos y descripciones
+    alternatives_formatted <- paste0(alternatives, " (", alternatives_desc, ")")
+    alternatives_str <- paste(alternatives_formatted, collapse = "; ")
+  } else {
+    alternatives_str <- NA_character_
+  }
+
+  # Validar si el código existe en el catálogo
+  code_valid <- !is.na(description)
   tibble(
     texto = medical_text,
     codigo = code,
-    descripcion = description
+    codigo_valido = code_valid,
+    descripcion = description,
+    alternativas = alternatives_str
   )
 }
 
